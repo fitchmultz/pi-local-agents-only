@@ -40,10 +40,11 @@ test("getMode prefers env override, then repo marker, then global config", () =>
 	});
 });
 
-test("stripGlobalBlocks removes all global blocks and keeps local context", () => {
+test("stripGlobalBlocks removes global blocks and keeps local AGENTS or CLAUDE context", () => {
 	const globalAgents = "## /home/me/.pi/agent/AGENTS.md\n\nA\n\n";
 	const globalClaude = "## /home/me/.pi/agent/CLAUDE.md\n\nB\n\n";
-	const localAgents = "## /repo/AGENTS.md\n\nLOCAL\n\n";
-	const prompt = `${globalAgents}${globalClaude}${localAgents}`;
-	assert.equal(stripGlobalBlocks(prompt, [globalAgents, globalClaude]), localAgents);
+	const localAgents = "## /repo/AGENTS.md\n\nLOCAL AGENTS\n\n";
+	const localClaude = "## /repo/subdir/CLAUDE.md\n\nLOCAL CLAUDE\n\n";
+	const prompt = `${globalAgents}${globalClaude}${localAgents}${localClaude}`;
+	assert.equal(stripGlobalBlocks(prompt, [globalAgents, globalClaude]), `${localAgents}${localClaude}`);
 });
