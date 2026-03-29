@@ -4,8 +4,16 @@ Use repo-local `AGENTS.md` only for selected projects by stripping global `AGENT
 
 ## Install
 
+Install it from npm with pi:
+
 ```bash
-pi install git:github.com/fitchmultz/pi-local-agents-only
+pi install npm:pi-local-agents-only
+```
+
+Or install it directly from GitHub with pi:
+
+```bash
+pi install https://github.com/fitchmultz/pi-local-agents-only
 ```
 
 ## Use
