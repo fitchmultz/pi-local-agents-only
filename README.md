@@ -49,6 +49,8 @@ Repo opt-in uses this marker file:
 .pi/local-agents-only
 ```
 
+For git repos, marker and global allowlist activation apply across linked worktrees.
+
 Env override for one run:
 
 ```bash
@@ -57,3 +59,5 @@ PI_LOCAL_AGENTS_ONLY=0 pi
 ```
 
 This changes the prompt the model sees. It does not change pi's startup header.
+
+If you toggle it during an existing session, start a fresh turn or `/new` for the cleanest verification.
