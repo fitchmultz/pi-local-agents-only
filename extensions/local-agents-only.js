@@ -1,3 +1,5 @@
+// @ts-check
+
 /**
  * Purpose: Strip pi's global AGENTS.md and CLAUDE.md blocks from the effective prompt for opted-in projects.
  * Responsibilities: Detect repo and worktree opt-in state, manage repo and global toggles, add a local-only guardrail, and remove matching global context blocks before model calls.
@@ -11,6 +13,14 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
+/** @typedef {import("@mariozechner/pi-coding-agent").ExtensionAPI} ExtensionAPI */
+/** @typedef {import("@mariozechner/pi-coding-agent").ExtensionContext} ExtensionContext */
+/** @typedef {{ projects: string[]; repositories: string[] }} LocalAgentsOnlyConfig */
+/** @typedef {{ start: string; projectRoot: string; repoId: string; worktreeRoots: string[] }} ProjectState */
+/** @typedef {{ enabled: boolean; source: "env" | "marker" | "global-config" | "default" }} Mode */
+/** @typedef {{ path: string; start: number; end: number }} ContextBlock */
+/** @typedef {{ prompt: string; removedPaths: string[] }} StripResult */
+
 const COMMAND = "local-agents-only";
 const MARKER = join(".pi", COMMAND);
 const GLOBAL_CONTEXT_FILES = ["AGENTS.md", "CLAUDE.md"];
@@ -21,6 +31,7 @@ const SKILLS_HEADER = "\n\nThe following skills provide specialized instructions
 const DATE_HEADER = "\nCurrent date:";
 const CONTEXT_BLOCK_HEADER = /^## ([^\n]+(?:AGENTS|CLAUDE)\.md)\n\n/gm;
 
+/** @returns {string} */
 const getAgentDir = () => {
 	const env = process.env.PI_CODING_AGENT_DIR;
 	if (env === "~") {
@@ -31,10 +42,24 @@ const getAgentDir = () => {
 	}
 	return env || join(homedir(), ".pi", "agent");
 };
+
+/** @param {string} path */
 const normalizePath = (path) => resolve(path).replace(/\\/g, "/");
+
+/** @returns {string} */
 const CONFIG = () => join(getAgentDir(), `${COMMAND}.json`);
+
+/** @param {string} projectRoot */
 const getMarkerPath = (projectRoot) => join(projectRoot, MARKER);
+
+/** @param {string[]} values */
 const uniqueSorted = (values) => [...new Set(values.map(normalizePath))].sort();
+
+/**
+ * @param {string} start
+ * @param {(dir: string) => boolean} predicate
+ * @returns {string | undefined}
+ */
 const walkUp = (start, predicate) => {
 	let current = resolve(start);
 	while (true) {
@@ -43,11 +68,17 @@ const walkUp = (start, predicate) => {
 		}
 		const parent = dirname(current);
 		if (parent === current) {
-			return;
+			return undefined;
 		}
 		current = parent;
 	}
 };
+
+/**
+ * @param {string} start
+ * @param {string[]} args
+ * @returns {string | undefined}
+ */
 const runGit = (start, args) => {
 	try {
 		return execFileSync("git", args, {
@@ -56,20 +87,33 @@ const runGit = (start, args) => {
 			stdio: ["ignore", "pipe", "ignore"],
 		}).trim();
 	} catch {
-		return;
+		return undefined;
 	}
 };
+
+/**
+ * @param {string} [configPath]
+ * @returns {LocalAgentsOnlyConfig}
+ */
 const readConfig = (configPath = CONFIG()) => {
 	try {
-		const { projects = [], repositories = [] } = JSON.parse(readFileSync(configPath, "utf8"));
+		const parsed = /** @type {{ projects?: unknown; repositories?: unknown }} */ (
+			JSON.parse(readFileSync(configPath, "utf8"))
+		);
+		const { projects = [], repositories = [] } = parsed;
 		return {
-			projects: Array.isArray(projects) ? projects.map(normalizePath) : [],
-			repositories: Array.isArray(repositories) ? repositories.map(normalizePath) : [],
+			projects: Array.isArray(projects) ? projects.map((value) => normalizePath(String(value))) : [],
+			repositories: Array.isArray(repositories) ? repositories.map((value) => normalizePath(String(value))) : [],
 		};
 	} catch {
 		return { projects: [], repositories: [] };
 	}
 };
+
+/**
+ * @param {LocalAgentsOnlyConfig} config
+ * @param {string} [configPath]
+ */
 const writeConfig = ({ projects, repositories }, configPath = CONFIG()) => {
 	mkdirSync(dirname(configPath), { recursive: true });
 	writeFileSync(
@@ -84,6 +128,11 @@ const writeConfig = ({ projects, repositories }, configPath = CONFIG()) => {
 		) + "\n",
 	);
 };
+
+/**
+ * @param {string | undefined} [value]
+ * @returns {boolean | undefined}
+ */
 const getEnvToggle = (value = process.env.PI_LOCAL_AGENTS_ONLY) => {
 	const toggle = `${value ?? ""}`.trim().toLowerCase();
 	if (ENV_TRUE.includes(toggle)) {
@@ -92,24 +141,46 @@ const getEnvToggle = (value = process.env.PI_LOCAL_AGENTS_ONLY) => {
 	if (ENV_FALSE.includes(toggle)) {
 		return false;
 	}
+	return undefined;
 };
+
+/** @param {string} [agentDir] */
 const getGlobalContextPaths = (agentDir = getAgentDir()) => GLOBAL_CONTEXT_FILES.map((name) => join(agentDir, name));
+
+/** @param {string} [agentDir] */
 const getExistingGlobalContextPaths = (agentDir = getAgentDir()) =>
 	getGlobalContextPaths(agentDir).filter((path) => existsSync(path));
+
+/**
+ * @param {string} prompt
+ * @param {number} offset
+ * @returns {number}
+ */
 const getContextSectionEnd = (prompt, offset) => {
 	const candidates = [prompt.indexOf(SKILLS_HEADER, offset), prompt.indexOf(DATE_HEADER, offset)].filter(
 		(index) => index !== -1,
 	);
 	return candidates.length > 0 ? Math.min(...candidates) : prompt.length;
 };
+
+/**
+ * @param {string} contextSection
+ * @returns {ContextBlock[]}
+ */
 const getContextBlocks = (contextSection) => {
 	const matches = [...contextSection.matchAll(CONTEXT_BLOCK_HEADER)];
 	return matches.map((match, index) => ({
 		path: match[1],
-		start: match.index,
-		end: index + 1 < matches.length ? matches[index + 1].index : contextSection.length,
+		start: match.index ?? 0,
+		end: index + 1 < matches.length ? (matches[index + 1].index ?? contextSection.length) : contextSection.length,
 	}));
 };
+
+/**
+ * @param {string} prompt
+ * @param {string[]} [globalPaths]
+ * @returns {StripResult}
+ */
 const stripGlobalContext = (prompt, globalPaths = getGlobalContextPaths()) => {
 	const sectionStart = prompt.lastIndexOf(PROJECT_CONTEXT_HEADER);
 	if (sectionStart === -1) {
@@ -123,7 +194,9 @@ const stripGlobalContext = (prompt, globalPaths = getGlobalContextPaths()) => {
 		return { prompt, removedPaths: [] };
 	}
 	const globalPathKeys = new Set(globalPaths.map(normalizePath));
+	/** @type {string[]} */
 	const keptBlocks = [];
+	/** @type {string[]} */
 	const removedPaths = [];
 	for (const block of blocks) {
 		const blockText = contextSection.slice(block.start, block.end);
@@ -146,14 +219,29 @@ const stripGlobalContext = (prompt, globalPaths = getGlobalContextPaths()) => {
 		removedPaths: uniqueSorted(removedPaths),
 	};
 };
+
+/**
+ * @param {string} start
+ * @returns {string | undefined}
+ */
 const getGitTopLevel = (start) => {
 	const topLevel = runGit(start, ["rev-parse", "--show-toplevel"]);
 	return topLevel ? normalizePath(topLevel) : undefined;
 };
+
+/**
+ * @param {string} start
+ * @returns {string | undefined}
+ */
 const getGitCommonDir = (start) => {
 	const commonDir = runGit(start, ["rev-parse", "--git-common-dir"]);
 	return commonDir ? normalizePath(resolve(start, commonDir)) : undefined;
 };
+
+/**
+ * @param {string} start
+ * @returns {string[]}
+ */
 const getWorktreeRoots = (start) => {
 	const list = runGit(start, ["worktree", "list", "--porcelain"]);
 	if (!list) {
@@ -166,6 +254,11 @@ const getWorktreeRoots = (start) => {
 			.map((line) => line.slice("worktree ".length)),
 	);
 };
+
+/**
+ * @param {string} [start]
+ * @returns {ProjectState}
+ */
 const getProjectState = (start = process.cwd()) => {
 	const normalizedStart = normalizePath(start);
 	const gitTopLevel = getGitTopLevel(normalizedStart);
@@ -183,19 +276,32 @@ const getProjectState = (start = process.cwd()) => {
 			worktreeRoots.length > 0 ? uniqueSorted([projectRoot, ...worktreeRoots]) : [normalizePath(projectRoot)],
 	};
 };
+
+/** @param {ProjectState} state */
 const getMarkerRoots = (state) => uniqueSorted([state.projectRoot, ...state.worktreeRoots]);
+
+/** @param {ProjectState} state */
 const hasMarker = (state) => getMarkerRoots(state).some((root) => existsSync(getMarkerPath(root)));
+
+/** @param {ProjectState} state */
 const writeMarkers = (state) => {
 	for (const root of getMarkerRoots(state)) {
 		mkdirSync(dirname(getMarkerPath(root)), { recursive: true });
 		writeFileSync(getMarkerPath(root), "\n");
 	}
 };
+
+/** @param {ProjectState} state */
 const clearMarkers = (state) => {
 	for (const root of getMarkerRoots(state)) {
 		rmSync(getMarkerPath(root), { force: true });
 	}
 };
+
+/**
+ * @param {string[]} [paths]
+ * @returns {string}
+ */
 const buildLocalOnlyNotice = (paths = getExistingGlobalContextPaths(getAgentDir())) => {
 	if (paths.length === 0) {
 		return "";
@@ -208,6 +314,12 @@ const buildLocalOnlyNotice = (paths = getExistingGlobalContextPaths(getAgentDir(
 		"Follow only repo-local AGENTS.md or CLAUDE.md guidance for this project.",
 	].join("\n");
 };
+
+/**
+ * @param {string} prompt
+ * @param {string} [agentDir]
+ * @returns {string}
+ */
 const applyLocalOnlyPrompt = (prompt, agentDir = getAgentDir()) => {
 	const { prompt: stripped, removedPaths } = stripGlobalContext(prompt, getGlobalContextPaths(agentDir));
 	const notice = buildLocalOnlyNotice(
@@ -215,6 +327,8 @@ const applyLocalOnlyPrompt = (prompt, agentDir = getAgentDir()) => {
 	);
 	return notice ? `${stripped}\n\n${notice}` : stripped;
 };
+
+/** @param {ExtensionContext} ctx */
 const setStatus = (ctx) => {
 	if (!ctx.hasUI) {
 		return;
@@ -222,8 +336,18 @@ const setStatus = (ctx) => {
 	const mode = getMode(ctx.cwd);
 	ctx.ui.setStatus(COMMAND, mode.enabled ? `AGENTS: local-only (${mode.source})` : undefined);
 };
+
+/**
+ * @param {ProjectState} state
+ * @returns {string}
+ */
 const getProjectTarget = (state) =>
 	state.worktreeRoots.length > 1 ? `${state.projectRoot} and linked worktrees` : state.projectRoot;
+
+/**
+ * @param {ProjectState} state
+ * @returns {string}
+ */
 const getOffNotification = (state) => {
 	const mode = getMode(state);
 	if (!mode.enabled) {
@@ -238,10 +362,20 @@ const getOffNotification = (state) => {
 	return `Repo marker cleared for ${getProjectTarget(state)}, but local-agents-only is still enabled via ${mode.source}.`;
 };
 
+/**
+ * @param {string} [start]
+ * @returns {string}
+ */
 export function findProjectRoot(start = process.cwd()) {
 	return getProjectState(start).projectRoot;
 }
 
+/**
+ * @param {string | ProjectState} [start]
+ * @param {string | undefined} [envValue]
+ * @param {string} [configPath]
+ * @returns {Mode}
+ */
 export function getMode(start = process.cwd(), envValue = process.env.PI_LOCAL_AGENTS_ONLY, configPath = CONFIG()) {
 	const state = typeof start === "string" ? getProjectState(start) : start;
 	const envToggle = getEnvToggle(envValue);
@@ -261,10 +395,16 @@ export function getMode(start = process.cwd(), envValue = process.env.PI_LOCAL_A
 	return { enabled: false, source: "default" };
 }
 
+/**
+ * @param {string} prompt
+ * @param {string[]} [globalPaths]
+ * @returns {string}
+ */
 export function stripGlobalBlocks(prompt, globalPaths = getGlobalContextPaths()) {
 	return stripGlobalContext(prompt, globalPaths).prompt;
 }
 
+/** @param {ExtensionAPI} pi */
 export default function localAgentsOnly(pi) {
 	pi.registerCommand(COMMAND, {
 		description: "Use only repo-local AGENTS prompt context",
@@ -274,7 +414,10 @@ export default function localAgentsOnly(pi) {
 				case "on":
 					writeMarkers(state);
 					setStatus(ctx);
-					ctx.ui.notify(`Enabled for ${state.projectRoot}${state.worktreeRoots.length > 1 ? ` across ${state.worktreeRoots.length} worktrees` : ""}`, "info");
+					ctx.ui.notify(
+						`Enabled for ${state.projectRoot}${state.worktreeRoots.length > 1 ? ` across ${state.worktreeRoots.length} worktrees` : ""}`,
+						"info",
+					);
 					return;
 				case "off":
 					clearMarkers(state);
