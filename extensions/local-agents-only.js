@@ -16,6 +16,10 @@ const MARKER = join(".pi", COMMAND);
 const GLOBAL_CONTEXT_FILES = ["AGENTS.md", "CLAUDE.md"];
 const ENV_TRUE = ["1", "true", "yes", "on"];
 const ENV_FALSE = ["0", "false", "no", "off"];
+const PROJECT_CONTEXT_HEADER = "\n\n# Project Context\n\nProject-specific instructions and guidelines:\n\n";
+const SKILLS_HEADER = "\n\nThe following skills provide specialized instructions for specific tasks.";
+const DATE_HEADER = "\nCurrent date:";
+const CONTEXT_BLOCK_HEADER = /^## ([^\n]+(?:AGENTS|CLAUDE)\.md)\n\n/gm;
 
 const getAgentDir = () => {
 	const env = process.env.PI_CODING_AGENT_DIR;
@@ -89,10 +93,59 @@ const getEnvToggle = (value = process.env.PI_LOCAL_AGENTS_ONLY) => {
 		return false;
 	}
 };
-const getGlobalContextPaths = (agentDir = getAgentDir()) =>
-	GLOBAL_CONTEXT_FILES.map((name) => join(agentDir, name)).filter((path) => existsSync(path));
-const getGlobalBlocks = (agentDir = getAgentDir()) =>
-	getGlobalContextPaths(agentDir).map((path) => `## ${path}\n\n${readFileSync(path, "utf8")}\n\n`);
+const getGlobalContextPaths = (agentDir = getAgentDir()) => GLOBAL_CONTEXT_FILES.map((name) => join(agentDir, name));
+const getExistingGlobalContextPaths = (agentDir = getAgentDir()) =>
+	getGlobalContextPaths(agentDir).filter((path) => existsSync(path));
+const getContextSectionEnd = (prompt, offset) => {
+	const candidates = [prompt.indexOf(SKILLS_HEADER, offset), prompt.indexOf(DATE_HEADER, offset)].filter(
+		(index) => index !== -1,
+	);
+	return candidates.length > 0 ? Math.min(...candidates) : prompt.length;
+};
+const getContextBlocks = (contextSection) => {
+	const matches = [...contextSection.matchAll(CONTEXT_BLOCK_HEADER)];
+	return matches.map((match, index) => ({
+		path: match[1],
+		start: match.index,
+		end: index + 1 < matches.length ? matches[index + 1].index : contextSection.length,
+	}));
+};
+const stripGlobalContext = (prompt, globalPaths = getGlobalContextPaths()) => {
+	const sectionStart = prompt.lastIndexOf(PROJECT_CONTEXT_HEADER);
+	if (sectionStart === -1) {
+		return { prompt, removedPaths: [] };
+	}
+	const contextStart = sectionStart + PROJECT_CONTEXT_HEADER.length;
+	const sectionEnd = getContextSectionEnd(prompt, contextStart);
+	const contextSection = prompt.slice(contextStart, sectionEnd);
+	const blocks = getContextBlocks(contextSection);
+	if (blocks.length === 0) {
+		return { prompt, removedPaths: [] };
+	}
+	const globalPathKeys = new Set(globalPaths.map(normalizePath));
+	const keptBlocks = [];
+	const removedPaths = [];
+	for (const block of blocks) {
+		const blockText = contextSection.slice(block.start, block.end);
+		if (globalPathKeys.has(normalizePath(block.path))) {
+			removedPaths.push(block.path);
+		} else {
+			keptBlocks.push(blockText);
+		}
+	}
+	if (removedPaths.length === 0) {
+		return { prompt, removedPaths: [] };
+	}
+	const prefix = prompt.slice(0, sectionStart);
+	const suffix = prompt.slice(sectionEnd);
+	if (keptBlocks.length === 0) {
+		return { prompt: `${prefix}${suffix}`, removedPaths: uniqueSorted(removedPaths) };
+	}
+	return {
+		prompt: `${prefix}${PROJECT_CONTEXT_HEADER}${keptBlocks.join("")}${suffix}`,
+		removedPaths: uniqueSorted(removedPaths),
+	};
+};
 const getGitTopLevel = (start) => {
 	const topLevel = runGit(start, ["rev-parse", "--show-toplevel"]);
 	return topLevel ? normalizePath(topLevel) : undefined;
@@ -143,8 +196,7 @@ const clearMarkers = (state) => {
 		rmSync(getMarkerPath(root), { force: true });
 	}
 };
-const buildLocalOnlyNotice = (agentDir = getAgentDir()) => {
-	const paths = getGlobalContextPaths(agentDir);
+const buildLocalOnlyNotice = (paths = getExistingGlobalContextPaths(getAgentDir())) => {
 	if (paths.length === 0) {
 		return "";
 	}
@@ -152,13 +204,15 @@ const buildLocalOnlyNotice = (agentDir = getAgentDir()) => {
 		"# Local Context Mode",
 		"This repo is in local-agents-only mode.",
 		"Ignore instructions from these global context files even if they appear in older session messages, summaries, or retries:",
-		...paths.map((path) => `- ${path}`),
+		...uniqueSorted(paths).map((path) => `- ${path}`),
 		"Follow only repo-local AGENTS.md or CLAUDE.md guidance for this project.",
 	].join("\n");
 };
 const applyLocalOnlyPrompt = (prompt, agentDir = getAgentDir()) => {
-	const stripped = stripGlobalBlocks(prompt, getGlobalBlocks(agentDir));
-	const notice = buildLocalOnlyNotice(agentDir);
+	const { prompt: stripped, removedPaths } = stripGlobalContext(prompt, getGlobalContextPaths(agentDir));
+	const notice = buildLocalOnlyNotice(
+		removedPaths.length > 0 ? removedPaths : getExistingGlobalContextPaths(agentDir),
+	);
 	return notice ? `${stripped}\n\n${notice}` : stripped;
 };
 const setStatus = (ctx) => {
@@ -167,6 +221,21 @@ const setStatus = (ctx) => {
 	}
 	const mode = getMode(ctx.cwd);
 	ctx.ui.setStatus(COMMAND, mode.enabled ? `AGENTS: local-only (${mode.source})` : undefined);
+};
+const getProjectTarget = (state) =>
+	state.worktreeRoots.length > 1 ? `${state.projectRoot} and linked worktrees` : state.projectRoot;
+const getOffNotification = (state) => {
+	const mode = getMode(state);
+	if (!mode.enabled) {
+		return `Disabled for ${getProjectTarget(state)}`;
+	}
+	if (mode.source === "global-config") {
+		return `Repo marker cleared for ${getProjectTarget(state)}, but local-agents-only is still enabled via global allowlist. Use /local-agents-only global-off to fully disable it.`;
+	}
+	if (mode.source === "env") {
+		return `Repo marker cleared for ${getProjectTarget(state)}, but local-agents-only is still enabled via PI_LOCAL_AGENTS_ONLY.`;
+	}
+	return `Repo marker cleared for ${getProjectTarget(state)}, but local-agents-only is still enabled via ${mode.source}.`;
 };
 
 export function findProjectRoot(start = process.cwd()) {
@@ -192,8 +261,8 @@ export function getMode(start = process.cwd(), envValue = process.env.PI_LOCAL_A
 	return { enabled: false, source: "default" };
 }
 
-export function stripGlobalBlocks(prompt, blocks = getGlobalBlocks()) {
-	return blocks.reduce((nextPrompt, block) => nextPrompt.replace(block, ""), prompt);
+export function stripGlobalBlocks(prompt, globalPaths = getGlobalContextPaths()) {
+	return stripGlobalContext(prompt, globalPaths).prompt;
 }
 
 export default function localAgentsOnly(pi) {
@@ -210,7 +279,7 @@ export default function localAgentsOnly(pi) {
 				case "off":
 					clearMarkers(state);
 					setStatus(ctx);
-					ctx.ui.notify(`Disabled for ${state.projectRoot}${state.worktreeRoots.length > 1 ? ` and linked worktrees` : ""}`, "info");
+					ctx.ui.notify(getOffNotification(state), "info");
 					return;
 				case "global-on": {
 					const config = readConfig();

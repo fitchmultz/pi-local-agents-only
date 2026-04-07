@@ -30,6 +30,8 @@ Disable for the current repo:
 /local-agents-only off
 ```
 
+`/local-agents-only off` clears the repo marker only. If the repo is still enabled via `/local-agents-only global-on` or `PI_LOCAL_AGENTS_ONLY=1`, it remains enabled until you also run `/local-agents-only global-off` or unset the env var.
+
 Enable or disable via the global allowlist:
 
 ```bash
