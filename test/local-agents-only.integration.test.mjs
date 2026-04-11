@@ -3,26 +3,21 @@
  * Responsibilities: Verify stripping uses the already-loaded prompt context rather than rereading live global files.
  * Scope: Integration tests for prompt rewriting only.
  * Usage: Run `npm test` from the package root.
- * Invariants/Assumptions: A global installation of `@mariozechner/pi-coding-agent` is available via `npm root -g`.
+ * Invariants/Assumptions: The repo's devDependency on `@mariozechner/pi-coding-agent` is installed locally.
  */
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 
 import localAgentsOnly from "../extensions/local-agents-only.js";
 
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-const globalNodeModules = execFileSync(npmCommand, ["root", "-g"], {
-	encoding: "utf8",
-	stdio: ["ignore", "pipe", "pipe"],
-}).trim();
-const piSystemPromptPath = join(globalNodeModules, "@mariozechner", "pi-coding-agent", "dist", "core", "system-prompt.js");
-const { buildSystemPrompt } = await import(pathToFileURL(piSystemPromptPath).href);
+// `buildSystemPrompt` is not part of pi's public exports, so resolve the repo-local package
+// entry and import the adjacent internal module from the same pinned installation.
+const piEntryUrl = await import.meta.resolve("@mariozechner/pi-coding-agent");
+const { buildSystemPrompt } = await import(new URL("./core/system-prompt.js", piEntryUrl));
 
 const withEnv = (name, value, fn) => {
 	const previous = process.env[name];

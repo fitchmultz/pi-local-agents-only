@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.7 - 2026-04-11
+
+- fix non-git project-root detection so the global `~/.pi` directory no longer hijacks repo inference under a user's home directory
+- make the integration tests hermetic by resolving the repo-local `@mariozechner/pi-coding-agent` install instead of a global npm install
+- refuse to overwrite malformed global allowlist config and write config updates atomically
+- add regression tests for the homedir root bug and config-write hardening
+- add GitHub Actions CI plus a `prepublishOnly` guard that reruns `npm run check` before publish
+
 ## 0.1.6 - 2026-04-07
 
 - add dev-time static checking with `tsc --noEmit`

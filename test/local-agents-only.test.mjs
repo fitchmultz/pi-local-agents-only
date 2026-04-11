@@ -9,8 +9,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import fs, { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import localAgentsOnly, { findProjectRoot, getMode, stripGlobalBlocks } from "../extensions/local-agents-only.js";
@@ -51,6 +52,8 @@ const withEnv = async (name, value, fn) => {
 	}
 };
 
+const normalizePath = (path) => resolve(path).replace(/\\/g, "/");
+
 const captureCommandHandler = () => {
 	let handler;
 	localAgentsOnly({
@@ -65,6 +68,8 @@ const captureCommandHandler = () => {
 	return handler;
 };
 
+const withHome = (home, fn) => withEnv("HOME", home, () => withEnv("USERPROFILE", home, fn));
+
 test("findProjectRoot returns the nearest git root", () => {
 	const root = createGitRepo("pi-local-agents-only-root-");
 	const nested = join(root, "a", "b");
@@ -72,11 +77,28 @@ test("findProjectRoot returns the nearest git root", () => {
 	assert.equal(findProjectRoot(nested), root);
 });
 
-test("findProjectRoot falls back to the current directory outside git instead of filesystem root", () => {
-	const root = mkdtempSync(join(tmpdir(), "pi-local-agents-only-no-git-"));
-	const nested = join(root, "a", "b");
-	mkdirSync(nested, { recursive: true });
-	assert.equal(findProjectRoot(nested), nested);
+test("findProjectRoot falls back to the current directory outside git even under homedir()", async () => {
+	const fakeHome = mkdtempSync(join(tmpdir(), "pi-local-agents-only-home-"));
+
+	await withHome(fakeHome, async () => {
+		mkdirSync(join(homedir(), ".pi", "agent"), { recursive: true });
+		const nested = join(homedir(), "project", "a", "b");
+		mkdirSync(nested, { recursive: true });
+		assert.equal(findProjectRoot(nested), nested);
+	});
+});
+
+test("findProjectRoot still uses a project-local .pi directory outside git", async () => {
+	const fakeHome = mkdtempSync(join(tmpdir(), "pi-local-agents-only-home-project-pi-"));
+
+	await withHome(fakeHome, async () => {
+		mkdirSync(join(homedir(), ".pi", "agent"), { recursive: true });
+		const root = join(homedir(), "project");
+		const nested = join(root, "a", "b");
+		mkdirSync(join(root, ".pi"), { recursive: true });
+		mkdirSync(nested, { recursive: true });
+		assert.equal(findProjectRoot(nested), root);
+	});
 });
 
 test("getMode prefers env override, then repo marker, then global config", () => {
@@ -213,5 +235,84 @@ test("/local-agents-only off reports when env override still keeps the repo enab
 	assert.equal(
 		notifications.at(-1),
 		`Repo marker cleared for ${repo}, but local-agents-only is still enabled via PI_LOCAL_AGENTS_ONLY.`,
+	);
+});
+
+test("/local-agents-only global-on refuses to overwrite malformed global config", async () => {
+	const root = mkdtempSync(join(tmpdir(), "pi-local-agents-only-malformed-global-on-"));
+	const agentDir = join(root, "agent");
+	const repo = join(root, "repo");
+	const configPath = join(agentDir, "local-agents-only.json");
+	mkdirSync(agentDir, { recursive: true });
+	mkdirSync(repo, { recursive: true });
+	writeFileSync(configPath, "{\n  \"projects\": [\"/repo\"],\n", "utf8");
+	const original = readFileSync(configPath, "utf8");
+	const notifications = [];
+	const handler = captureCommandHandler();
+	const ctx = {
+		cwd: repo,
+		hasUI: true,
+		ui: {
+			notify: (message) => notifications.push(message),
+			setStatus() {},
+		},
+	};
+
+	await withEnv("PI_CODING_AGENT_DIR", agentDir, async () => {
+		await handler("global-on", ctx);
+	});
+
+	assert.equal(readFileSync(configPath, "utf8"), original);
+	assert.equal(
+		notifications.at(-1),
+		`Global allowlist unchanged: Malformed local-agents-only config at ${normalizePath(configPath)}. Fix or remove the file, then retry.`,
+	);
+});
+
+test("/local-agents-only global-on keeps the previous config when the atomic rename fails", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "pi-local-agents-only-atomic-write-"));
+	const agentDir = join(root, "agent");
+	const repo = join(root, "repo");
+	const configPath = join(agentDir, "local-agents-only.json");
+	mkdirSync(agentDir, { recursive: true });
+	mkdirSync(repo, { recursive: true });
+	writeFileSync(
+		configPath,
+		JSON.stringify({ projects: [repo], repositories: [normalizePath(repo)] }, null, 2) + "\n",
+		"utf8",
+	);
+	const original = readFileSync(configPath, "utf8");
+	const notifications = [];
+	const handler = captureCommandHandler();
+	const ctx = {
+		cwd: repo,
+		hasUI: true,
+		ui: {
+			notify: (message) => notifications.push(message),
+			setStatus() {},
+		},
+	};
+	const renameMock = t.mock.method(fs, "renameSync", () => {
+		throw new Error("simulated rename failure");
+	});
+	syncBuiltinESMExports();
+
+	try {
+		await withEnv("PI_CODING_AGENT_DIR", agentDir, async () => {
+			await handler("global-on", ctx);
+		});
+	} finally {
+		renameMock.mock.restore();
+		syncBuiltinESMExports();
+	}
+
+	assert.equal(readFileSync(configPath, "utf8"), original);
+	assert.equal(
+		notifications.at(-1),
+		`Global allowlist unchanged: failed to update ${normalizePath(configPath)} (simulated rename failure).`,
+	);
+	assert.deepEqual(
+		readdirSync(agentDir).filter((name) => name.includes("local-agents-only.json.") && name.endsWith(".tmp")),
+		[],
 	);
 });

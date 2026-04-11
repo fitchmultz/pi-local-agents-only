@@ -9,7 +9,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -21,6 +21,17 @@ import { dirname, join, resolve } from "node:path";
 /** @typedef {{ path: string; start: number; end: number }} ContextBlock */
 /** @typedef {{ prompt: string; removedPaths: string[] }} StripResult */
 
+class ConfigError extends Error {
+	/**
+	 * @param {string} message
+	 * @param {unknown} [cause]
+	 */
+	constructor(message, cause) {
+		super(message, cause === undefined ? undefined : { cause });
+		this.name = "ConfigError";
+	}
+}
+
 const COMMAND = "local-agents-only";
 const MARKER = join(".pi", COMMAND);
 const GLOBAL_CONTEXT_FILES = ["AGENTS.md", "CLAUDE.md"];
@@ -30,6 +41,7 @@ const PROJECT_CONTEXT_HEADER = "\n\n# Project Context\n\nProject-specific instru
 const SKILLS_HEADER = "\n\nThe following skills provide specialized instructions for specific tasks.";
 const DATE_HEADER = "\nCurrent date:";
 const CONTEXT_BLOCK_HEADER = /^## ([^\n]+(?:AGENTS|CLAUDE)\.md)\n\n/gm;
+const emptyConfig = () => ({ projects: [], repositories: [] });
 
 /** @returns {string} */
 const getAgentDir = () => {
@@ -45,6 +57,13 @@ const getAgentDir = () => {
 
 /** @param {string} path */
 const normalizePath = (path) => resolve(path).replace(/\\/g, "/");
+
+/** @param {string} path */
+const isGlobalPiDirectory = (path) => {
+	const normalizedPath = normalizePath(path);
+	const agentDir = normalizePath(getAgentDir());
+	return normalizedPath === agentDir || normalizedPath === normalizePath(dirname(agentDir));
+};
 
 /** @returns {string} */
 const CONFIG = () => join(getAgentDir(), `${COMMAND}.json`);
@@ -92,21 +111,104 @@ const runGit = (start, args) => {
 };
 
 /**
+ * @param {string} name
+ * @param {unknown} value
+ * @param {string} configPath
+ * @returns {string[]}
+ */
+const parseConfigList = (name, value, configPath) => {
+	if (value === undefined) {
+		return [];
+	}
+	if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
+		throw new ConfigError(
+			`Malformed local-agents-only config at ${normalizePath(configPath)}. Expected "${name}" to be an array of strings. Fix or remove the file, then retry.`,
+		);
+	}
+	return uniqueSorted(value);
+};
+
+/**
+ * @param {string} rawConfig
+ * @param {string} configPath
+ * @returns {LocalAgentsOnlyConfig}
+ */
+const parseConfig = (rawConfig, configPath) => {
+	let parsed;
+	try {
+		parsed = /** @type {{ projects?: unknown; repositories?: unknown }} */ (JSON.parse(rawConfig));
+	} catch (error) {
+		throw new ConfigError(
+			`Malformed local-agents-only config at ${normalizePath(configPath)}. Fix or remove the file, then retry.`,
+			error,
+		);
+	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+		throw new ConfigError(
+			`Malformed local-agents-only config at ${normalizePath(configPath)}. Expected a JSON object. Fix or remove the file, then retry.`,
+		);
+	}
+	return {
+		projects: parseConfigList("projects", parsed.projects, configPath),
+		repositories: parseConfigList("repositories", parsed.repositories, configPath),
+	};
+};
+
+/**
+ * @param {string} [configPath]
+ * @returns {LocalAgentsOnlyConfig}
+ */
+const readConfigForMutation = (configPath = CONFIG()) => {
+	if (!existsSync(configPath)) {
+		return emptyConfig();
+	}
+	return parseConfig(readFileSync(configPath, "utf8"), configPath);
+};
+
+/**
  * @param {string} [configPath]
  * @returns {LocalAgentsOnlyConfig}
  */
 const readConfig = (configPath = CONFIG()) => {
 	try {
-		const parsed = /** @type {{ projects?: unknown; repositories?: unknown }} */ (
-			JSON.parse(readFileSync(configPath, "utf8"))
-		);
-		const { projects = [], repositories = [] } = parsed;
-		return {
-			projects: Array.isArray(projects) ? projects.map((value) => normalizePath(String(value))) : [],
-			repositories: Array.isArray(repositories) ? repositories.map((value) => normalizePath(String(value))) : [],
-		};
+		return readConfigForMutation(configPath);
 	} catch {
-		return { projects: [], repositories: [] };
+		return emptyConfig();
+	}
+};
+
+/**
+ * @param {string} path
+ * @param {string} content
+ */
+const writeFileAtomically = (path, content) => {
+	mkdirSync(dirname(path), { recursive: true });
+	const tempPath = `${path}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
+	/** @type {number | undefined} */
+	let fileDescriptor;
+	try {
+		fileDescriptor = openSync(tempPath, "wx", 0o600);
+		writeFileSync(fileDescriptor, content, "utf8");
+		fsyncSync(fileDescriptor);
+		closeSync(fileDescriptor);
+		fileDescriptor = undefined;
+		renameSync(tempPath, path);
+		try {
+			const directoryDescriptor = openSync(dirname(path), "r");
+			try {
+				fsyncSync(directoryDescriptor);
+			} finally {
+				closeSync(directoryDescriptor);
+			}
+		} catch {
+			// Best effort: directory fsync is not available on every platform.
+		}
+	} catch (error) {
+		if (fileDescriptor !== undefined) {
+			closeSync(fileDescriptor);
+		}
+		rmSync(tempPath, { force: true });
+		throw error;
 	}
 };
 
@@ -115,8 +217,7 @@ const readConfig = (configPath = CONFIG()) => {
  * @param {string} [configPath]
  */
 const writeConfig = ({ projects, repositories }, configPath = CONFIG()) => {
-	mkdirSync(dirname(configPath), { recursive: true });
-	writeFileSync(
+	writeFileAtomically(
 		configPath,
 		JSON.stringify(
 			{
@@ -265,7 +366,10 @@ const getProjectState = (start = process.cwd()) => {
 	const projectRoot =
 		gitTopLevel ||
 		walkUp(normalizedStart, (dir) => existsSync(getMarkerPath(dir))) ||
-		walkUp(normalizedStart, (dir) => existsSync(join(dir, ".pi"))) ||
+		walkUp(normalizedStart, (dir) => {
+			const piDir = join(dir, ".pi");
+			return existsSync(piDir) && !isGlobalPiDirectory(piDir);
+		}) ||
 		normalizedStart;
 	const worktreeRoots = getWorktreeRoots(normalizedStart);
 	return {
@@ -363,6 +467,29 @@ const getOffNotification = (state) => {
 };
 
 /**
+ * @param {(config: LocalAgentsOnlyConfig) => LocalAgentsOnlyConfig} mutate
+ */
+const mutateGlobalConfig = (mutate) => {
+	const configPath = CONFIG();
+	const config = readConfigForMutation(configPath);
+	writeConfig(mutate(config), configPath);
+	return configPath;
+};
+
+/**
+ * @param {unknown} error
+ * @param {string} [configPath]
+ * @returns {string}
+ */
+const getGlobalConfigMutationError = (error, configPath = CONFIG()) => {
+	if (error instanceof ConfigError) {
+		return `Global allowlist unchanged: ${error.message}`;
+	}
+	const reason = error instanceof Error ? error.message : String(error);
+	return `Global allowlist unchanged: failed to update ${normalizePath(configPath)} (${reason}).`;
+};
+
+/**
  * @param {string} [start]
  * @returns {string}
  */
@@ -425,21 +552,29 @@ export default function localAgentsOnly(pi) {
 					ctx.ui.notify(getOffNotification(state), "info");
 					return;
 				case "global-on": {
-					const config = readConfig();
-					writeConfig({
-						projects: [...config.projects, ...state.worktreeRoots],
-						repositories: [...config.repositories, state.repoId],
-					});
+					try {
+						mutateGlobalConfig((config) => ({
+							projects: [...config.projects, ...state.worktreeRoots],
+							repositories: [...config.repositories, state.repoId],
+						}));
+					} catch (error) {
+						ctx.ui.notify(getGlobalConfigMutationError(error), "error");
+						return;
+					}
 					setStatus(ctx);
 					ctx.ui.notify(`Global allowlist enabled for ${state.projectRoot}`, "info");
 					return;
 				}
 				case "global-off": {
-					const config = readConfig();
-					writeConfig({
-						projects: config.projects.filter((path) => !state.worktreeRoots.includes(path)),
-						repositories: config.repositories.filter((id) => id !== state.repoId),
-					});
+					try {
+						mutateGlobalConfig((config) => ({
+							projects: config.projects.filter((path) => !state.worktreeRoots.includes(path)),
+							repositories: config.repositories.filter((id) => id !== state.repoId),
+						}));
+					} catch (error) {
+						ctx.ui.notify(getGlobalConfigMutationError(error), "error");
+						return;
+					}
 					setStatus(ctx);
 					ctx.ui.notify(`Global allowlist disabled for ${state.projectRoot}`, "info");
 					return;
