@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.8 - 2026-04-15
+
+- refresh the local development toolchain to `@mariozechner/pi-coding-agent` `0.67.2`, `typescript` `6.0.2`, and `@types/node` `25.6.0`
+- declare `node >=20.6.0` and `packageManager: npm@11.12.1` in published metadata
+- refresh the lockfile to the current stable development baseline
+
 ## 0.1.7 - 2026-04-11
 
 - fix non-git project-root detection so the global `~/.pi` directory no longer hijacks repo inference under a user's home directory
