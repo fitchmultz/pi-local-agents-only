@@ -2,8 +2,10 @@
 
 ## Unreleased
 
-- update the local pi development baseline to `@mariozechner/pi-coding-agent` `0.67.4`
-- align `packageManager` metadata to `npm@10.9.8`, the latest stable npm line compatible with the declared Node runtime floor
+## 0.1.9 - 2026-04-18
+
+- bumped the local pi development baseline to `@mariozechner/pi-coding-agent` `0.67.68` and `typescript` `6.0.3`
+- refreshed the release lockfile against the current stable pi patch line
 
 ## 0.1.8 - 2026-04-15
 
