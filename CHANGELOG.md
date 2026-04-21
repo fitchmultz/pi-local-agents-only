@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.10 - 2026-04-21
+
+- updated the local pi development baseline to `@mariozechner/pi-coding-agent` `0.68.0`
+- regenerated the npm lockfile against the current stable dependency graph
+- reviewed the pi `0.68.0` changelog and confirmed the extension does not depend on removed cwd-bound tool exports or implicit cwd helper fallbacks
+
 ## 0.1.9 - 2026-04-18
 
 - bumped the local pi development baseline to `@mariozechner/pi-coding-agent` `0.67.68` and `typescript` `6.0.3`
