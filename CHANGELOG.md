@@ -2,11 +2,11 @@
 
 ## Unreleased
 
-## 0.1.11 - 2026-04-22
+## 0.1.11 - 2026-04-23
 
-- updated the local pi development baseline to `@mariozechner/pi-coding-agent` `0.69.0`
+- updated the local pi development baseline to `@mariozechner/pi-coding-agent` `0.70.0`
 - regenerated the npm lockfile against the current stable dependency graph
-- reviewed the pi `0.69.0` changelog and confirmed the extension does not depend on the TypeBox migration surface, removed cwd-bound helpers, or stale session-replacement objects
+- reviewed the pi `0.70.0` changelog and confirmed the extension does not depend on the TypeBox migration surface, removed cwd-bound helpers, or stale session-replacement objects, or changed terminal progress defaults
 
 
 ## 0.1.10 - 2026-04-21
