@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.1.12 - 2026-05-01
+
+- updated the local pi development baseline to `@mariozechner/pi-coding-agent` `0.71.1`
+- regenerated the npm lockfile against the current stable dependency graph
+- reviewed the pi `0.71.1` changelog and confirmed the extension remains compatible with current system-prompt and package-loading behavior
+
+
 ## 0.1.11 - 2026-04-23
 
 - updated the local pi development baseline to `@mariozechner/pi-coding-agent` `0.70.0`
