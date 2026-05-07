@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.14 - 2026-05-07
+
+- migrated the local pi development baseline and peer metadata from deprecated `@mariozechner/*` packages to maintained `@earendil-works/*` `0.74.0`
+- regenerated the npm lockfile against the current stable dependency graph
+- reviewed the pi `0.74.0` changelog and confirmed the extension remains compatible with current system-prompt and package-loading behavior
+
 ## 0.1.13 - 2026-05-01
 
 - updated the local pi development baseline to `@mariozechner/pi-coding-agent` `0.72.0`
