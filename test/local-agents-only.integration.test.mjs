@@ -3,7 +3,7 @@
  * Responsibilities: Verify stripping uses the already-loaded prompt context rather than rereading live global files.
  * Scope: Integration tests for prompt rewriting only.
  * Usage: Run `npm test` from the package root.
- * Invariants/Assumptions: The repo's devDependency on `@mariozechner/pi-coding-agent` is installed locally.
+ * Invariants/Assumptions: The repo's devDependency on `@earendil-works/pi-coding-agent` is installed locally.
  */
 
 import test from "node:test";
@@ -16,7 +16,7 @@ import localAgentsOnly from "../extensions/local-agents-only.js";
 
 // `buildSystemPrompt` is not part of pi's public exports, so resolve the repo-local package
 // entry and import the adjacent internal module from the same pinned installation.
-const piEntryUrl = await import.meta.resolve("@mariozechner/pi-coding-agent");
+const piEntryUrl = await import.meta.resolve("@earendil-works/pi-coding-agent");
 const { buildSystemPrompt } = await import(new URL("./core/system-prompt.js", piEntryUrl));
 
 const withEnv = (name, value, fn) => {

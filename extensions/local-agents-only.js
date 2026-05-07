@@ -13,8 +13,8 @@ import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, re
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-/** @typedef {import("@mariozechner/pi-coding-agent").ExtensionAPI} ExtensionAPI */
-/** @typedef {import("@mariozechner/pi-coding-agent").ExtensionContext} ExtensionContext */
+/** @typedef {import("@earendil-works/pi-coding-agent").ExtensionAPI} ExtensionAPI */
+/** @typedef {import("@earendil-works/pi-coding-agent").ExtensionContext} ExtensionContext */
 /** @typedef {{ projects: string[]; repositories: string[] }} LocalAgentsOnlyConfig */
 /** @typedef {{ start: string; projectRoot: string; repoId: string; worktreeRoots: string[] }} ProjectState */
 /** @typedef {{ enabled: boolean; source: "env" | "marker" | "global-config" | "default" }} Mode */
