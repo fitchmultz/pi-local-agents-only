@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- updated the local pi development baseline to `@earendil-works/pi-coding-agent` `0.76.0` and regenerated the npm lockfile
+- reviewed the pi `0.76.0` changelog and package guidance; the extension remains compatible with current system-prompt and package-loading behavior
+
 ## 0.1.16 - 2026-05-23
 
 - updated the local pi development baseline to `@earendil-works/pi-coding-agent` `0.75.5`, refreshed Node tooling, and regenerated the npm lockfile
