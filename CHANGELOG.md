@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.18 - 2026-05-28
+
+- updated the local pi development baseline to `@earendil-works/pi-coding-agent` `0.77.0` and regenerated the npm lockfile
+- kept pi runtime packages as optional wildcard peers and removed the Node.js engine upper bound so future pi releases are not blocked at install time
+- reviewed the pi `0.77.0` changelog and package guidance; the extension remains compatible with current system-prompt and package-loading behavior
+
 ## 0.1.17 - 2026-05-27
 
 - updated the local pi development baseline to `@earendil-works/pi-coding-agent` `0.76.0` and regenerated the npm lockfile

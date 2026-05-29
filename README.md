@@ -16,6 +16,8 @@ Or install it directly from GitHub with pi:
 pi install https://github.com/fitchmultz/pi-local-agents-only
 ```
 
+Compatibility note: this package is tested against the current pi release during each package update, and pi-bundled runtime packages are declared as optional wildcard peers. That keeps installs forward-open for future pi releases: npm peer ranges should not block users from trying a newer pi, though runtime behavior is only verified against the tested baseline until a follow-up package release confirms it.
+
 ## Use
 
 Enable for the current repo:
