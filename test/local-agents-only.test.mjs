@@ -153,31 +153,31 @@ test("worktrees still honor legacy global allowlist entries stored by worktree p
 	assert.deepEqual(getMode(worktree, "", configPath), { enabled: true, source: "global-config" });
 });
 
-test("stripGlobalBlocks removes global blocks from the project context section and keeps local context", () => {
+test("stripGlobalBlocks removes global XML blocks from project context and keeps local context", () => {
 	const globalAgentsPath = "/home/me/.pi/agent/AGENTS.md";
 	const globalClaudePath = "/home/me/.pi/agent/CLAUDE.md";
 	const localAgentsPath = "/repo/AGENTS.md";
 	const localClaudePath = "/repo/subdir/CLAUDE.md";
-	const prompt = `System prompt intro\n\n# Project Context\n\nProject-specific instructions and guidelines:\n\n## ${globalAgentsPath}\n\nA\n\n## ${globalClaudePath}\n\nB\n\n## ${localAgentsPath}\n\nLOCAL AGENTS\n\n## ${localClaudePath}\n\nLOCAL CLAUDE\n\nCurrent date: 2026-04-07\nCurrent working directory: /repo`;
-	const expected = `System prompt intro\n\n# Project Context\n\nProject-specific instructions and guidelines:\n\n## ${localAgentsPath}\n\nLOCAL AGENTS\n\n## ${localClaudePath}\n\nLOCAL CLAUDE\n\nCurrent date: 2026-04-07\nCurrent working directory: /repo`;
+	const prompt = `System prompt intro\n\n<project_context>\n\nProject-specific instructions and guidelines:\n\n<project_instructions path="${globalAgentsPath}">\nA\n</project_instructions>\n\n<project_instructions path="${globalClaudePath}">\nB\n</project_instructions>\n\n<project_instructions path="${localAgentsPath}">\nLOCAL AGENTS\n</project_instructions>\n\n<project_instructions path="${localClaudePath}">\nLOCAL CLAUDE\n</project_instructions>\n</project_context>\nCurrent date: 2026-04-07\nCurrent working directory: /repo`;
+	const expected = `System prompt intro\n<project_context>\n\nProject-specific instructions and guidelines:\n\n<project_instructions path="${localAgentsPath}">\nLOCAL AGENTS\n</project_instructions>\n\n<project_instructions path="${localClaudePath}">\nLOCAL CLAUDE\n</project_instructions>\n</project_context>\nCurrent date: 2026-04-07\nCurrent working directory: /repo`;
 	assert.equal(stripGlobalBlocks(prompt, [globalAgentsPath, globalClaudePath]), expected);
 });
 
-test("stripGlobalBlocks removes the empty project context section when only global context was loaded", () => {
+test("stripGlobalBlocks removes the empty XML project context section when only global context was loaded", () => {
 	const globalAgentsPath = "/home/me/.pi/agent/AGENTS.md";
-	const prompt = `System prompt intro\n\n# Project Context\n\nProject-specific instructions and guidelines:\n\n## ${globalAgentsPath}\n\nGLOBAL\n\nCurrent date: 2026-04-07\nCurrent working directory: /repo`;
+	const prompt = `System prompt intro\n\n<project_context>\n\nProject-specific instructions and guidelines:\n\n<project_instructions path="${globalAgentsPath}">\nGLOBAL\n</project_instructions>\n</project_context>\nCurrent date: 2026-04-07\nCurrent working directory: /repo`;
 	assert.equal(
 		stripGlobalBlocks(prompt, [globalAgentsPath]),
 		"System prompt intro\nCurrent date: 2026-04-07\nCurrent working directory: /repo",
 	);
 });
 
-test("stripGlobalBlocks targets pi's appended project context section even if the custom prompt mentions the same heading", () => {
+test("stripGlobalBlocks targets pi's appended XML project context section even if the custom prompt mentions the same tag", () => {
 	const globalAgentsPath = "/home/me/.pi/agent/AGENTS.md";
-	const prompt = `Intro\n\n# Project Context\n\nProject-specific instructions and guidelines:\n\nThis is just custom prompt text.\n\n# Project Context\n\nProject-specific instructions and guidelines:\n\n## ${globalAgentsPath}\n\nGLOBAL\n\nCurrent date: 2026-04-07\nCurrent working directory: /repo`;
+	const prompt = `Intro\n\n<project_context>\nThis is just custom prompt text.\n</project_context>\n\n<project_context>\n\nProject-specific instructions and guidelines:\n\n<project_instructions path="${globalAgentsPath}">\nGLOBAL\n</project_instructions>\n</project_context>\nCurrent date: 2026-04-07\nCurrent working directory: /repo`;
 	assert.equal(
 		stripGlobalBlocks(prompt, [globalAgentsPath]),
-		"Intro\n\n# Project Context\n\nProject-specific instructions and guidelines:\n\nThis is just custom prompt text.\nCurrent date: 2026-04-07\nCurrent working directory: /repo",
+		"Intro\n\n<project_context>\nThis is just custom prompt text.\n</project_context>\nCurrent date: 2026-04-07\nCurrent working directory: /repo",
 	);
 });
 

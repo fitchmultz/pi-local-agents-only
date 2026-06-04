@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.1.19 - 2026-06-04
+
+- updated the local pi development baseline to `@earendil-works/pi-coding-agent` `0.78.1` and regenerated the npm lockfile
+- aligned prompt rewriting with pi `0.78.1` system-prompt metadata by using `before_agent_start` `systemPromptOptions` for loaded global context files
+- removed legacy Markdown context stripping now that current pi prompt context uses XML boundaries
+- refreshed CI to test supported Node.js release lines only
+
 ## 0.1.18 - 2026-05-28
 
 - updated the local pi development baseline to `@earendil-works/pi-coding-agent` `0.77.0` and regenerated the npm lockfile

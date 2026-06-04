@@ -61,17 +61,22 @@ const createFixture = () => {
 	return { agentDir, repo };
 };
 
-const buildPrompt = ({ repo, agentDir, globalContent, localBlocks = [] }) =>
-	buildSystemPrompt({
+const buildPromptFixture = ({ repo, agentDir, globalContent, localBlocks = [] }) => {
+	const systemPromptOptions = {
 		cwd: repo,
 		contextFiles: [{ path: join(agentDir, "AGENTS.md"), content: globalContent }, ...localBlocks],
 		selectedTools: ["read"],
 		toolSnippets: { read: "Read file contents" },
-	});
+	};
+	return {
+		systemPrompt: buildSystemPrompt(systemPromptOptions),
+		systemPromptOptions,
+	};
+};
 
-const runBeforeAgentStart = (handler, repo, agentDir, systemPrompt) =>
+const runBeforeAgentStart = (handler, repo, agentDir, fixture) =>
 	withEnv("PI_CODING_AGENT_DIR", agentDir, () =>
-		handler({ prompt: "", images: [], systemPrompt }, { cwd: repo }).systemPrompt,
+		handler({ prompt: "", images: [], ...fixture }, { cwd: repo }).systemPrompt,
 	);
 
 test(
@@ -82,14 +87,14 @@ test(
 		const globalPath = join(agentDir, "AGENTS.md");
 		writeFileSync(globalPath, "GLOBAL RULES\n");
 		const beforeAgentStart = captureBeforeAgentStart();
-		const basePrompt = buildPrompt({
+		const fixture = buildPromptFixture({
 			repo,
 			agentDir,
 			globalContent: "GLOBAL RULES\n",
 			localBlocks: [{ path: join(repo, "AGENTS.md"), content: "LOCAL RULES\n" }],
 		});
 
-		const prompt = runBeforeAgentStart(beforeAgentStart, repo, agentDir, basePrompt);
+		const prompt = runBeforeAgentStart(beforeAgentStart, repo, agentDir, fixture);
 
 		assert.equal(prompt.includes("GLOBAL RULES"), false);
 		assert.equal(prompt.includes("LOCAL RULES"), true);
@@ -106,7 +111,7 @@ test(
 		const globalPath = join(agentDir, "AGENTS.md");
 		writeFileSync(globalPath, "OLD GLOBAL\n");
 		const beforeAgentStart = captureBeforeAgentStart();
-		const basePrompt = buildPrompt({
+		const fixture = buildPromptFixture({
 			repo,
 			agentDir,
 			globalContent: "OLD GLOBAL\n",
@@ -114,7 +119,7 @@ test(
 		});
 		writeFileSync(globalPath, "NEW GLOBAL\n");
 
-		const prompt = runBeforeAgentStart(beforeAgentStart, repo, agentDir, basePrompt);
+		const prompt = runBeforeAgentStart(beforeAgentStart, repo, agentDir, fixture);
 
 		assert.equal(prompt.includes("OLD GLOBAL"), false);
 		assert.equal(prompt.includes("NEW GLOBAL"), false);
@@ -131,14 +136,14 @@ test(
 		const globalPath = join(agentDir, "AGENTS.md");
 		writeFileSync(globalPath, "GLOBAL ONLY\n");
 		const beforeAgentStart = captureBeforeAgentStart();
-		const basePrompt = buildPrompt({
+		const fixture = buildPromptFixture({
 			repo,
 			agentDir,
 			globalContent: "GLOBAL ONLY\n",
 		});
 		rmSync(globalPath, { force: true });
 
-		const prompt = runBeforeAgentStart(beforeAgentStart, repo, agentDir, basePrompt);
+		const prompt = runBeforeAgentStart(beforeAgentStart, repo, agentDir, fixture);
 
 		assert.equal(prompt.includes("GLOBAL ONLY"), false);
 		assert.equal(prompt.includes("# Project Context"), false);

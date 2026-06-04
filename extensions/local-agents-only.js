@@ -5,7 +5,7 @@
  * Responsibilities: Detect repo and worktree opt-in state, manage repo and global toggles, add a local-only guardrail, and remove matching global context blocks before model calls.
  * Scope: Works as a pi extension package. It changes only the prompt the model sees, not pi's startup header.
  * Usage: Install the package, then use `/local-agents-only on|off|status|global-on|global-off`.
- * Invariants/Assumptions: pi injects context files as XML `<project_instructions path="...">` blocks in current releases and previously used Markdown `## /absolute/path` blocks; git worktrees that share a common git dir should share local-agents-only state.
+ * Invariants/Assumptions: pi injects context files as XML `<project_instructions path="...">` blocks in current releases; git worktrees that share a common git dir should share local-agents-only state.
  */
 
 import { execFileSync } from "node:child_process";
@@ -15,10 +15,10 @@ import { dirname, join, resolve } from "node:path";
 
 /** @typedef {import("@earendil-works/pi-coding-agent").ExtensionAPI} ExtensionAPI */
 /** @typedef {import("@earendil-works/pi-coding-agent").ExtensionContext} ExtensionContext */
+/** @typedef {import("@earendil-works/pi-coding-agent").BuildSystemPromptOptions} BuildSystemPromptOptions */
 /** @typedef {{ projects: string[]; repositories: string[] }} LocalAgentsOnlyConfig */
 /** @typedef {{ start: string; projectRoot: string; repoId: string; worktreeRoots: string[] }} ProjectState */
 /** @typedef {{ enabled: boolean; source: "env" | "marker" | "global-config" | "default" }} Mode */
-/** @typedef {{ path: string; start: number; end: number }} ContextBlock */
 /** @typedef {{ prompt: string; removedPaths: string[] }} StripResult */
 
 class ConfigError extends Error {
@@ -37,13 +37,9 @@ const MARKER = join(".pi", COMMAND);
 const GLOBAL_CONTEXT_FILES = ["AGENTS.md", "CLAUDE.md"];
 const ENV_TRUE = ["1", "true", "yes", "on"];
 const ENV_FALSE = ["0", "false", "no", "off"];
-const PROJECT_CONTEXT_HEADER = "\n\n# Project Context\n\nProject-specific instructions and guidelines:\n\n";
 const PROJECT_CONTEXT_XML_START = "<project_context>";
 const PROJECT_CONTEXT_XML_END = "</project_context>";
 const PROJECT_CONTEXT_XML_PREFIX = "<project_context>\n\nProject-specific instructions and guidelines:\n\n";
-const SKILLS_HEADER = "\n\nThe following skills provide specialized instructions for specific tasks.";
-const DATE_HEADER = "\nCurrent date:";
-const CONTEXT_BLOCK_HEADER = /^## ([^\n]+(?:AGENTS|CLAUDE)\.md)\n\n/gm;
 const CONTEXT_XML_BLOCK = /<project_instructions path="([^"]+(?:AGENTS|CLAUDE)\.md)">\n[\s\S]*?<\/project_instructions>\n*/g;
 const emptyConfig = () => ({ projects: [], repositories: [] });
 
@@ -257,28 +253,17 @@ const getExistingGlobalContextPaths = (agentDir = getAgentDir()) =>
 	getGlobalContextPaths(agentDir).filter((path) => existsSync(path));
 
 /**
- * @param {string} prompt
- * @param {number} offset
- * @returns {number}
+ * @param {BuildSystemPromptOptions | undefined} options
+ * @param {string} [agentDir]
+ * @returns {string[]}
  */
-const getContextSectionEnd = (prompt, offset) => {
-	const candidates = [prompt.indexOf(SKILLS_HEADER, offset), prompt.indexOf(DATE_HEADER, offset)].filter(
-		(index) => index !== -1,
+const getLoadedGlobalContextPaths = (options, agentDir = getAgentDir()) => {
+	const globalPathKeys = new Set(getGlobalContextPaths(agentDir).map(normalizePath));
+	return uniqueSorted(
+		(options?.contextFiles ?? [])
+			.map((file) => file.path)
+			.filter((path) => globalPathKeys.has(normalizePath(path))),
 	);
-	return candidates.length > 0 ? Math.min(...candidates) : prompt.length;
-};
-
-/**
- * @param {string} contextSection
- * @returns {ContextBlock[]}
- */
-const getContextBlocks = (contextSection) => {
-	const matches = [...contextSection.matchAll(CONTEXT_BLOCK_HEADER)];
-	return matches.map((match, index) => ({
-		path: match[1],
-		start: match.index ?? 0,
-		end: index + 1 < matches.length ? (matches[index + 1].index ?? contextSection.length) : contextSection.length,
-	}));
 };
 
 /**
@@ -286,7 +271,7 @@ const getContextBlocks = (contextSection) => {
  * @param {string[]} [globalPaths]
  * @returns {StripResult}
  */
-const stripXmlGlobalContext = (prompt, globalPaths = getGlobalContextPaths()) => {
+const stripGlobalContext = (prompt, globalPaths = getGlobalContextPaths()) => {
 	const contextTagStart = prompt.lastIndexOf(PROJECT_CONTEXT_XML_START);
 	if (contextTagStart === -1) {
 		return { prompt, removedPaths: [] };
@@ -312,7 +297,7 @@ const stripXmlGlobalContext = (prompt, globalPaths = getGlobalContextPaths()) =>
 		if (globalPathKeys.has(normalizePath(path))) {
 			removedPaths.push(path);
 		} else {
-			keptBlocks.push(blockText.endsWith("\n\n") ? blockText : `${blockText}\n`);
+			keptBlocks.push(blockText.trimEnd());
 		}
 	}
 	if (removedPaths.length === 0) {
@@ -321,66 +306,12 @@ const stripXmlGlobalContext = (prompt, globalPaths = getGlobalContextPaths()) =>
 	const prefix = prompt.slice(0, contextTagStart).replace(/\n\n$/u, "\n");
 	const suffix = prompt.slice(sectionEnd);
 	if (keptBlocks.length === 0) {
-		return { prompt: `${prefix}${suffix}`, removedPaths: uniqueSorted(removedPaths) };
+		return { prompt: `${prefix}${suffix.replace(/^\n/u, "")}`, removedPaths: uniqueSorted(removedPaths) };
 	}
 	return {
-		prompt: `${prefix}${PROJECT_CONTEXT_XML_PREFIX}${keptBlocks.join("\n")}${PROJECT_CONTEXT_XML_END}${suffix}`,
+		prompt: `${prefix}${PROJECT_CONTEXT_XML_PREFIX}${keptBlocks.join("\n\n")}\n${PROJECT_CONTEXT_XML_END}${suffix}`,
 		removedPaths: uniqueSorted(removedPaths),
 	};
-};
-
-/**
- * @param {string} prompt
- * @param {string[]} [globalPaths]
- * @returns {StripResult}
- */
-const stripMarkdownGlobalContext = (prompt, globalPaths = getGlobalContextPaths()) => {
-	const sectionStart = prompt.lastIndexOf(PROJECT_CONTEXT_HEADER);
-	if (sectionStart === -1) {
-		return { prompt, removedPaths: [] };
-	}
-	const contextStart = sectionStart + PROJECT_CONTEXT_HEADER.length;
-	const sectionEnd = getContextSectionEnd(prompt, contextStart);
-	const contextSection = prompt.slice(contextStart, sectionEnd);
-	const blocks = getContextBlocks(contextSection);
-	if (blocks.length === 0) {
-		return { prompt, removedPaths: [] };
-	}
-	const globalPathKeys = new Set(globalPaths.map(normalizePath));
-	/** @type {string[]} */
-	const keptBlocks = [];
-	/** @type {string[]} */
-	const removedPaths = [];
-	for (const block of blocks) {
-		const blockText = contextSection.slice(block.start, block.end);
-		if (globalPathKeys.has(normalizePath(block.path))) {
-			removedPaths.push(block.path);
-		} else {
-			keptBlocks.push(blockText);
-		}
-	}
-	if (removedPaths.length === 0) {
-		return { prompt, removedPaths: [] };
-	}
-	const prefix = prompt.slice(0, sectionStart);
-	const suffix = prompt.slice(sectionEnd);
-	if (keptBlocks.length === 0) {
-		return { prompt: `${prefix}${suffix}`, removedPaths: uniqueSorted(removedPaths) };
-	}
-	return {
-		prompt: `${prefix}${PROJECT_CONTEXT_HEADER}${keptBlocks.join("")}${suffix}`,
-		removedPaths: uniqueSorted(removedPaths),
-	};
-};
-
-/**
- * @param {string} prompt
- * @param {string[]} [globalPaths]
- * @returns {StripResult}
- */
-const stripGlobalContext = (prompt, globalPaths = getGlobalContextPaths()) => {
-	const xmlResult = stripXmlGlobalContext(prompt, globalPaths);
-	return xmlResult.removedPaths.length > 0 ? xmlResult : stripMarkdownGlobalContext(prompt, globalPaths);
 };
 
 /**
@@ -484,12 +415,15 @@ const buildLocalOnlyNotice = (paths = getExistingGlobalContextPaths(getAgentDir(
 /**
  * @param {string} prompt
  * @param {string} [agentDir]
+ * @param {BuildSystemPromptOptions} [systemPromptOptions]
  * @returns {string}
  */
-const applyLocalOnlyPrompt = (prompt, agentDir = getAgentDir()) => {
-	const { prompt: stripped, removedPaths } = stripGlobalContext(prompt, getGlobalContextPaths(agentDir));
+const applyLocalOnlyPrompt = (prompt, agentDir = getAgentDir(), systemPromptOptions = undefined) => {
+	const loadedGlobalPaths = getLoadedGlobalContextPaths(systemPromptOptions, agentDir);
+	const globalPaths = loadedGlobalPaths.length > 0 ? loadedGlobalPaths : getGlobalContextPaths(agentDir);
+	const { prompt: stripped, removedPaths } = stripGlobalContext(prompt, globalPaths);
 	const notice = buildLocalOnlyNotice(
-		removedPaths.length > 0 ? removedPaths : getExistingGlobalContextPaths(agentDir),
+		removedPaths.length > 0 ? removedPaths : loadedGlobalPaths.length > 0 ? loadedGlobalPaths : getExistingGlobalContextPaths(agentDir),
 	);
 	return notice ? `${stripped}\n\n${notice}` : stripped;
 };
@@ -666,6 +600,8 @@ export default function localAgentsOnly(pi) {
 	});
 
 	pi.on("before_agent_start", (event, ctx) => {
-		return getMode(ctx.cwd).enabled ? { systemPrompt: applyLocalOnlyPrompt(event.systemPrompt) } : undefined;
+		return getMode(ctx.cwd).enabled
+			? { systemPrompt: applyLocalOnlyPrompt(event.systemPrompt, getAgentDir(), event.systemPromptOptions) }
+			: undefined;
 	});
 }
