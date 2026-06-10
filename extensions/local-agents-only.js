@@ -429,11 +429,17 @@ const applyLocalOnlyPrompt = (prompt, agentDir = getAgentDir(), systemPromptOpti
 };
 
 /** @param {ExtensionContext} ctx */
+const isProjectTrusted = (ctx) => typeof ctx.isProjectTrusted === "function" ? ctx.isProjectTrusted() : true;
+
+/** @param {ExtensionContext} ctx */
+const getTrustedMode = (ctx) => getMode(ctx.cwd, undefined, undefined, { projectTrusted: isProjectTrusted(ctx) });
+
+/** @param {ExtensionContext} ctx */
 const setStatus = (ctx) => {
 	if (!ctx.hasUI) {
 		return;
 	}
-	const mode = getMode(ctx.cwd);
+	const mode = getTrustedMode(ctx);
 	ctx.ui.setStatus(COMMAND, mode.enabled ? `AGENTS: local-only (${mode.source})` : undefined);
 };
 
@@ -497,15 +503,16 @@ export function findProjectRoot(start = process.cwd()) {
  * @param {string | ProjectState} [start]
  * @param {string | undefined} [envValue]
  * @param {string} [configPath]
+ * @param {{ projectTrusted?: boolean }} [options]
  * @returns {Mode}
  */
-export function getMode(start = process.cwd(), envValue = process.env.PI_LOCAL_AGENTS_ONLY, configPath = CONFIG()) {
+export function getMode(start = process.cwd(), envValue = process.env.PI_LOCAL_AGENTS_ONLY, configPath = CONFIG(), options = {}) {
 	const state = typeof start === "string" ? getProjectState(start) : start;
 	const envToggle = getEnvToggle(envValue);
 	if (envToggle !== undefined) {
 		return { enabled: envToggle, source: "env" };
 	}
-	if (hasMarker(state)) {
+	if (options.projectTrusted !== false && hasMarker(state)) {
 		return { enabled: true, source: "marker" };
 	}
 	const { projects, repositories } = readConfig(configPath);
@@ -576,7 +583,7 @@ export default function localAgentsOnly(pi) {
 					return;
 				}
 				case "status": {
-					const mode = getMode(state);
+					const mode = getMode(state, undefined, undefined, { projectTrusted: isProjectTrusted(ctx) });
 					ctx.ui.notify(
 						`local-agents-only: ${mode.enabled ? `enabled via ${mode.source}` : "disabled"} (${state.projectRoot})`,
 						"info",
@@ -600,7 +607,7 @@ export default function localAgentsOnly(pi) {
 	});
 
 	pi.on("before_agent_start", (event, ctx) => {
-		return getMode(ctx.cwd).enabled
+		return getTrustedMode(ctx).enabled
 			? { systemPrompt: applyLocalOnlyPrompt(event.systemPrompt, getAgentDir(), event.systemPromptOptions) }
 			: undefined;
 	});

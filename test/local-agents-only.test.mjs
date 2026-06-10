@@ -101,7 +101,7 @@ test("findProjectRoot still uses a project-local .pi directory outside git", asy
 	});
 });
 
-test("getMode prefers env override, then repo marker, then global config", () => {
+test("getMode prefers env override, then trusted repo marker, then global config", () => {
 	const root = mkdtempSync(join(tmpdir(), "pi-local-agents-only-mode-"));
 	const configPath = join(root, "local-agents-only.json");
 	const markerPath = join(root, ".pi", "local-agents-only");
@@ -114,9 +114,10 @@ test("getMode prefers env override, then repo marker, then global config", () =>
 		}),
 	);
 	writeFileSync(markerPath, "\n");
-	assert.deepEqual(getMode(root, "1", configPath), { enabled: true, source: "env" });
-	assert.deepEqual(getMode(root, "0", configPath), { enabled: false, source: "env" });
+	assert.deepEqual(getMode(root, "1", configPath, { projectTrusted: false }), { enabled: true, source: "env" });
+	assert.deepEqual(getMode(root, "0", configPath, { projectTrusted: false }), { enabled: false, source: "env" });
 	assert.deepEqual(getMode(root, "", configPath), { enabled: true, source: "marker" });
+	assert.deepEqual(getMode(root, "", configPath, { projectTrusted: false }), { enabled: true, source: "global-config" });
 	rmSync(markerPath, { force: true });
 	assert.deepEqual(getMode(root, "", configPath), { enabled: true, source: "global-config" });
 	assert.deepEqual(getMode(mkdtempSync(join(tmpdir(), "pi-local-agents-only-default-")), "", configPath), {
