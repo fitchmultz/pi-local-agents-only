@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.1.20 - 2026-06-15
+
+- updated the local pi development baseline to `@earendil-works/pi-coding-agent` `0.79.4` and refreshed the npm lockfile
+- validated project-trust no-UI/global-block stripping behavior and package load under pi `0.79.4`
+
 ## 0.1.19 - 2026-06-04
 
 - updated the local pi development baseline to `@earendil-works/pi-coding-agent` `0.78.1` and regenerated the npm lockfile
