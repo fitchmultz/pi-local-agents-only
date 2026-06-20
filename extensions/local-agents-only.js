@@ -10,8 +10,8 @@
 
 import { execFileSync } from "node:child_process";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { CONFIG_DIR_NAME, getAgentDir as getPiAgentDir } from "@earendil-works/pi-coding-agent";
 
 /** @typedef {import("@earendil-works/pi-coding-agent").ExtensionAPI} ExtensionAPI */
 /** @typedef {import("@earendil-works/pi-coding-agent").ExtensionContext} ExtensionContext */
@@ -33,7 +33,7 @@ class ConfigError extends Error {
 }
 
 const COMMAND = "local-agents-only";
-const MARKER = join(".pi", COMMAND);
+const MARKER = join(CONFIG_DIR_NAME, COMMAND);
 const GLOBAL_CONTEXT_FILES = ["AGENTS.md", "CLAUDE.md"];
 const ENV_TRUE = ["1", "true", "yes", "on"];
 const ENV_FALSE = ["0", "false", "no", "off"];
@@ -44,16 +44,7 @@ const CONTEXT_XML_BLOCK = /<project_instructions path="([^"]+(?:AGENTS|CLAUDE)\.
 const emptyConfig = () => ({ projects: [], repositories: [] });
 
 /** @returns {string} */
-const getAgentDir = () => {
-	const env = process.env.PI_CODING_AGENT_DIR;
-	if (env === "~") {
-		return homedir();
-	}
-	if (env?.startsWith("~/")) {
-		return join(homedir(), env.slice(2));
-	}
-	return env || join(homedir(), ".pi", "agent");
-};
+const getAgentDir = () => getPiAgentDir();
 
 /** @param {string} path */
 const normalizePath = (path) => resolve(path).replace(/\\/g, "/");
@@ -360,7 +351,7 @@ const getProjectState = (start = process.cwd()) => {
 		gitTopLevel ||
 		walkUp(normalizedStart, (dir) => existsSync(getMarkerPath(dir))) ||
 		walkUp(normalizedStart, (dir) => {
-			const piDir = join(dir, ".pi");
+			const piDir = join(dir, CONFIG_DIR_NAME);
 			return existsSync(piDir) && !isGlobalPiDirectory(piDir);
 		}) ||
 		normalizedStart;
