@@ -1,6 +1,6 @@
 {
   "name": "pi-local-agents-only",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "Pi extension that strips global AGENTS.md and CLAUDE.md from the effective prompt for selected projects.",
   "author": "Mitch Fultz (https://github.com/fitchmultz)",
   "license": "MIT",
@@ -37,7 +37,7 @@
     "prepublishOnly": "npm run check"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.79.10",
+    "@earendil-works/pi-coding-agent": "^0.80.1",
     "@types/node": "^25.9.1",
     "typescript": "^6.0.3"
   },

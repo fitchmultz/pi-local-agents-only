@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.22 - 2026-06-23
+
+- updated the local pi development baseline to `@earendil-works/pi-coding-agent` `0.80.1` and refreshed the npm lockfile
+- refreshed the README compatibility note for pi `0.80.1`
+- reviewed the Pi 0.80.0/0.80.1 changelog; no runtime source migration was required
+
 ## 0.1.21 - 2026-06-22
 
 - updated the local pi development baseline to `@earendil-works/pi-coding-agent` `0.79.10` and refreshed the npm lockfile
