@@ -68,7 +68,10 @@ const captureCommandHandler = () => {
 	return handler;
 };
 
-const withHome = (home, fn) => withEnv("HOME", home, () => withEnv("USERPROFILE", home, fn));
+// Keep the host's agent-directory override coherent when a test replaces HOME.
+const withHome = (home, fn) => withEnv("HOME", home, () =>
+	withEnv("USERPROFILE", home, () => withEnv("PI_CODING_AGENT_DIR", join(home, ".pi", "agent"), fn)),
+);
 
 test("findProjectRoot returns the nearest git root", () => {
 	const root = createGitRepo("pi-local-agents-only-root-");

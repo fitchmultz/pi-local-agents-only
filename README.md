@@ -16,7 +16,13 @@ Or install it directly from GitHub with pi:
 pi install https://github.com/fitchmultz/pi-local-agents-only
 ```
 
-Compatibility note: this package is currently tested against pi `0.80.1` as the suggested floor, and pi-bundled runtime packages are declared as optional wildcard peers. That keeps installs forward-open for future pi releases: npm peer ranges should not block users from trying a newer pi, though runtime behavior is only verified against the tested baseline until a follow-up package release confirms it.
+Compatibility note: the current development baseline is official Pi `0.86.1`.
+`npm run check:compat` runs all 17 existing filesystem/Git and native prompt-builder
+tests plus the source typecheck against the installed host. Pi `0.80.1` remains the
+historical suggested floor, not a second version tested by this check. Optional
+wildcard peers keep installation forward-open; they do not promise that every
+future release is qualified. Run checks in a disposable HOME/agent directory with
+TMPDIR outside your real home; tests create isolated Git repositories and commits.
 
 ## Use
 

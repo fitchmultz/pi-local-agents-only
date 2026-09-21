@@ -34,10 +34,11 @@
     "test": "node --test",
     "typecheck": "tsc --noEmit",
     "check": "npm test && npm run typecheck",
+    "check:compat": "npm run check",
     "prepublishOnly": "npm run check"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.80.1",
+    "@earendil-works/pi-coding-agent": "0.86.1",
     "@types/node": "^25.9.1",
     "typescript": "^6.0.3"
   },
