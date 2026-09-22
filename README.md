@@ -16,7 +16,7 @@ Or install it directly from GitHub with pi:
 pi install https://github.com/fitchmultz/pi-local-agents-only
 ```
 
-Compatibility note: the current development baseline is official Pi `0.86.1`.
+Compatibility note: the current development baseline is official Pi `0.87.0`.
 `npm run check:compat` runs all 17 existing filesystem/Git and native prompt-builder
 tests plus the source typecheck against the installed host. Pi `0.80.1` remains the
 historical suggested floor, not a second version tested by this check. Optional
